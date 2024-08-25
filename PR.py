@@ -4,30 +4,32 @@ import numpy as np
 from statistics import mean
 import matplotlib.pyplot as plt
 
-
+# declaring an empty list
 filelist = []
 pathslist = []
 
 datapath = os.path.normpath("filepath to cohort folder")
 IDList = [1, 2, 3, 4]
 
+# walks through the filepath, filelist contains a list of all files and pathslist contains datapaths for subfolders
 for subdir, dirs, files in sorted(os.walk(datapath)):
     filelist.append(files)
     pathslist.append(subdir)
 
-filelist.pop(0)
-pathslist.pop(0)
+filelist.pop(0) # get rid of elements in index zero
+pathslist.pop(0) # get rid of elements in index zero
 
-def query(pathslist, querydate):  
-    folderdates = []
-    for x in pathslist:
-        folderdates.append(os.path.basename(os.path.normpath(x))) #
+# this function is used to isolate and analyze a specific folder/date from the data; run at the botton of this script
+def query(pathslist, querydate): 
+    folderdates = [] # stores dates from folder path
+    for x in pathslist: # goes through each path in pathslist
+        folderdates.append(os.path.basename(os.path.normpath(x))) # extracts the date from the filepath
 
-    querypaths = []
+    querypaths = [] # stores paths that match query dates
 
     for i in range(0, len(folderdates)):
-        if folderdates[i] == querydate:
-            querypaths.append(pathslist[i]) 
+        if folderdates[i] == querydate: 
+            querypaths.append(pathslist[i]) # pull specific date
 
     return(querypaths)
 
@@ -74,14 +76,14 @@ def data_construct(data):
 
     DipOn = times[np.where(events == 25)] # event codes for the dipper turning on and off
     DipOff = times[np.where(events == 26)]
-    DipOff = DipOff.tolist()
-    DipOff = DipOff[0]
 
     Lever_extensions = np.concatenate((LLever, RLever), axis = 0) # total time a lever was extended
     Lever_extensions = np.unique(Lever_extensions) # makes sure each time is only recorded once
 
     LLever_off = times[np.where(events == 29)]
     RLever_off = times[np.where(events == 30)]
+    Lever_retractions = np.concatenate((LLever_off, RLever_off), axis = 0)
+    Lever_retractions = np.unique(Lever_retractions)
 
     Reward = times[np.where(events == 25)]
 
@@ -117,64 +119,75 @@ def data_construct(data):
 
     # calculate the number of lever presses between the last two DipOn events
     LP_for_last_reward = 2 ** len(DipOn) # number of presses required up until the last reward of the session 
-    # calculate the number of lever presses from the last DipOff to the EndSess
+   
+    # calculate the number of lever presses from the last DipOff to the lever retracting
     if len(DipOff) > 0:
         last_dipoff = DipOff[-1]
-        LP_to_endsess = len([press for press in LeverPress if last_dipoff < press < EndSess])
+        LP_to_leveroff = len([press for press in LeverPress if last_dipoff < press < Lever_retractions])
     else:
-        LP_to_endsess = 0
+        LP_to_leveroff = 0
     # output the larger value
-    breakpoint = max(LP_for_last_reward, LP_to_endsess)
+    breakpoint = max(LP_for_last_reward, LP_to_leveroff)
 
 
     breakpoint_info = '' # add info about breakpoint for double checking data
     if breakpoint == LP_for_last_reward: 
         breakpoint_info = 'Breakpoint Rewarded'
     else:
-        if breakpoint == LP_to_endsess:
+        if breakpoint == LP_to_leveroff:
             breakpoint_info = 'Breakpoint Not Rewarded'
     
-    first_ratio = np.divide(np.subtract(DipOn[0], StartSess), 10000000)
-    last_ratio = np.divide(np.subtract(EndSess, DipOff[-1]), 10000000)
+    first_ratio = np.divide(np.subtract(DipOn[0], Lever_extensions), 10000000)
+    last_ratio = np.divide(np.subtract(Lever_retractions, DipOff[-1]), 10000000)
     # calculating the latency array by finding the time in between lever presses until the last one when LeverPress[i+1] doesn't exist
     
-    # calculate the time ratio and the running rate for each ratio
-    Ratios = [] # stores individual ratio times
-    lever_presses_per_ratio = [] # stores number of presses in each ratio
- 
-    for i in range(len(DipOff)): # defines a ratio as time from the dipper turning off to the next time the dipper turns on
-        p1 = np.divide(DipOff[i], 10000000)  # start time for the ratio
+    Ratios = []  # stores individual ratio times
+    lever_presses_per_ratio = []  # stores the number of presses in each ratio
+    running_rates = []  # stores the running rate for each ratio
+
+    for i in range(len(DipOff)):
+        # find the first lever press after DipOff[i]
+        p1_press = next((press for press in LeverPress if press > DipOff[i]), None)
+        # finds the last lever press before the next DipOn
         if i + 1 < len(DipOn):
-            p2 = np.divide(DipOn[i + 1], 10000000)  # end time for the ratio
-            ratio_duration = p2 - p1  # duration of the interval in seconds
-            Ratios.append(ratio_duration)
+            # get all lever presses between DipOff and the next DipOn
+            presses_in_interval = [press for press in LeverPress if DipOff[i] <= press <= DipOn[i + 1]]
+            
+            if presses_in_interval:
+                p1_press = presses_in_interval[0]  # first press after DipOff
+                p2_press = presses_in_interval[-1]  # last press before DipOn
 
-            # count the number of lever presses within this interval
-            presses_in_interval = len([press for press in LeverPress if p1 < np.divide(press, 10000000) <= p2])
-            lever_presses_per_ratio.append(presses_in_interval)
-        else:
-            break  # no more intervals to process
+                # calculate the ratio duration in seconds using the first and last press in the interval
+                p1 = np.divide(p1_press, 10000000)
+                p2 = np.divide(p2_press, 10000000)
+                ratio_duration = p2 - p1
+                Ratios.append(ratio_duration)
 
-    
-    running_rates = [lever_presses_per_ratio[i] / Ratios[i] if Ratios[i] > 0 else 0 for i in range(len(Ratios))]
+                # count the number of lever presses within this interval
+                lever_presses_per_ratio.append(len(presses_in_interval))
+
+                running_rate = len(presses_in_interval) / ratio_duration
+                running_rates.append(running_rate)
+
     avg_running_rate = np.mean(running_rates)
-
 
     return(average_latency, Sess_time, len(DipOn), len(LeverPress), breakpoint, breakpoint_info, first_ratio, last_ratio, Ratios, lever_presses_per_ratio, running_rates, avg_running_rate)
 
 # assigns a genotype to the subjects
 def genotype(sub): 
     g_type = None
-    if sub == 3 or sub == 4 or sub == 5 or sub == 7 or sub == 11 or sub == 12 or sub == 13 or sub == 15:
+    if sub == 1 or sub == 2:
         g_type = 'WT'
-    elif sub == 1 or sub == 2 or sub == 6 or sub == 8 or sub == 9 or sub == 10 or sub == 14 or sub == 16:
+    elif sub == 3 or sub == 4:
         g_type = 'Het'
     return g_type
 # assigns a label for sex to the subject
 def sex(sub): 
     s_type = None
-    if sub == 3 or sub == 4 or sub == 5 or sub == 7 or sub == 11 or sub == 12 or sub == 13 or sub == 15 or sub == 1 or sub == 2 or sub == 6 or sub == 8 or sub == 9 or sub == 10 or sub == 14 or sub == 16:
+    if sub == 1 or sub == 3:
         s_type = 'M'
+    if sub == 2 or sub == 4:
+        s_type = 'F'
     return s_type
 
 # uncomment the line below to analyze one specific day in the data, date must match folder name
