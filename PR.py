@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 filelist = []
 pathslist = []
 
-datapath = os.path.normpath("/Users/samdhanani/Dropbox/Muhle Lab/Mouse_files/Operant Cohort/PR/Raw Data Files/PR_Data_NoVR")
-IDList = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+datapath = os.path.normpath("filepath to cohort folder")
+IDList = [1, 2, 3, 4]
 
 for subdir, dirs, files in sorted(os.walk(datapath)):
     filelist.append(files)
@@ -31,59 +31,66 @@ def query(pathslist, querydate):
 
     return(querypaths)
 
+# this function extracts data from each specific data file by ID 
 def data_pull(datapath, ID):
+    df = [] 
+    progline = None
     
-    for subdir, dirs, files in sorted(os.walk(datapath)):
+    for subdir, dirs, files in sorted(os.walk(datapath)): 
         for file in files:
-            temp = file.split('.')  
-            sub = temp[1] 
+            temp = file.split('.') # split string by '.', in this case the string is split into the sesion date (0) and Subject ID (1)
+            sub = temp[1] # Subject ID
             if ID == sub:
-                x = os.path.join(subdir, file) 
-                df = pd.read_csv(x, sep="[:\s]{1,}", skiprows=15, header=None, engine="python") 
-                progline = pd.read_csv(x, skiprows=12, nrows = 1, header = None, engine="python")
+                x = os.path.join(subdir, file) # specific file
+                df = pd.read_csv(x, sep="[:\s]{1,}", skiprows=15, header=None, engine="python") # skips 15 rows to where the data actually starts
+                progline = pd.read_csv(x, skiprows=12, nrows = 1, header = None, engine="python") # reads only 1 row, the program line in the 12th row
                 progline = progline.values.tolist()
-                progline = progline[0][0].split(" ")
+                progline = progline[0][0].split(" ") 
                 if "_" in progline[1]:
-                    progline = progline[1].split("_", 1) 
+                    progline = progline[1].split("_", 1) # splits up program name if an underscore is present
                 progline = progline[1]
-                df = df.drop(0,axis=1)
-                df = df.stack()
-                df = df.to_frame()
-                df = df.to_numpy()
+                df = df.drop(0,axis=1) # cleaning up the data
+                df = df.stack() 
+                df = df.to_frame() 
+                df = df.to_numpy() # dataframe should be an array of each line containing the data, removed the row labels from the data file 
+    return(df, progline)   
 
-    try:
-        return(df, progline) 
-    except UnboundLocalError:
-        df = []
-        progline = None
-        return(df, progline)   
+# this function uses event and timestamp data to output various metrics describing behavior
+def data_construct(data): 
 
-def data_construct(data):
+    events = np.remainder(data,10000) # use division to isolate event code
+    times = data - events # subtract event code from full code
 
-    events = np.remainder(data,10000) 
-    times = data - events 
-
+    StartTrial = times[np.where(events == 111)] # all event codes come from the MED-PC Medscript
     StartSess = times[np.where(events == 113)]
     EndSess = times[np.where(events == 114)]
 
     Sess_time = np.divide(np.subtract(EndSess, StartSess), 10000000)
-    Sess_time = Sess_time.tolist() 
-    Sess_time = Sess_time[0] 
+    Sess_time = Sess_time.tolist() # turn into list
+    Sess_time = Sess_time[0] # points to specific info we need
 
-    LLever = times[np.where(events == 27)]
+    LLever = times[np.where(events == 27)] # command for when the lever is on
     RLever = times[np.where(events == 28)]
 
-    Lever_extensions = np.concatenate((LLever, RLever), axis = 0) 
-    Lever_extensions = np.unique(Lever_extensions)
-
-    DipOn = times[np.where(events == 25)]
+    DipOn = times[np.where(events == 25)] # event codes for the dipper turning on and off
     DipOff = times[np.where(events == 26)]
+    DipOff = DipOff.tolist()
+    DipOff = DipOff[0]
+
+    Lever_extensions = np.concatenate((LLever, RLever), axis = 0) # total time a lever was extended
+    Lever_extensions = np.unique(Lever_extensions) # makes sure each time is only recorded once
+
+    LLever_off = times[np.where(events == 29)]
+    RLever_off = times[np.where(events == 30)]
+
+    Reward = times[np.where(events == 25)]
 
     LPress = times[np.where(events == 1015)]
     RPress = times[np.where(events == 1016)]
 
     LeverPress = np.concatenate((LPress, RPress),axis=0)
-    LeverPress = sorted(LeverPress)
+    LeverPress = sorted(LeverPress) # combine lever presses into one list and keep them sorted
+    LeverPress = np.unique(LeverPress) # makes sure each lever press is only recorded once
 
     print('Mouse - ', Full_ID)
     
